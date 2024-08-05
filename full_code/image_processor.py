@@ -1,3 +1,4 @@
+# 이미지를 전처리하는 기능을 제공
 import cv2
 
 class ImageProcessor:
