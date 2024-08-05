@@ -1,3 +1,6 @@
+# 프레임을 처리하여 번호판을 인식하고, 인식된 번호를 데이터베이스에서 조회하는 기능을 제공
+# YOLO 모델을 사용하여 번호판을 감지하고, EasyOCR을 사용하여 번호판의 텍스트를 인식
+
 from collections import Counter
 from image_processor import ImageProcessor
 
