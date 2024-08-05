@@ -1,3 +1,6 @@
+# YOLO 모델을 초기화하고 비디오에서 프레임을 읽는 기능을 제공
+# 비디오 파일에서 프레임을 일정한 간격으로 추출하여 처리할 수 있게 함
+
 import cv2
 from ultralytics import YOLO
 
