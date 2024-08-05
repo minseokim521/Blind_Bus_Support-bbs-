@@ -1,3 +1,6 @@
+# 전체 프로그램의 실행을 관리하는 클래스인 `OCRMain`을 정의
+# YOLO 모델과 비디오 캡처, 데이터베이스 연결, 그리고 프레임 처리 기능을 초기화하고 실행
+
 import threading
 from queue import Queue
 import easyocr
