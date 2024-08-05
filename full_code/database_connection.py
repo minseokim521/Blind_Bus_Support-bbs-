@@ -1,3 +1,4 @@
+# 데이터베이스와의 연결을 관리하고, 특정 번호판 번호를 조회하는 기능을 제공
 import psycopg2
 
 class DatabaseConnection:
