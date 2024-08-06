@@ -1,7 +1,60 @@
 import psycopg2
 import requests
 import xml.etree.ElementTree as ET
+import cv2
+from collections import Counter
+import cv2
+from ultralytics import YOLO
 
+
+# YOLO 모델을 초기화하고 비디오에서 프레임을 읽는 기능을 제공
+# 비디오 파일에서 프레임을 일정한 간격으로 추출하여 처리할 수 있게 함
+class YOLOVideoCapture:
+    def __init__(self, model_path, video_path):
+        # YOLO 모델 초기화
+        self.model = YOLO(model_path)
+        self.model.overrides['verbose'] = False
+
+        # 비디오 캡처 초기화
+        self.cap = cv2.VideoCapture(video_path)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.frame_interval = int(self.fps / 5)
+    
+    def read_frames(self):
+        frames = []
+        while self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+
+            if int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) % self.frame_interval == 0:
+                frames.append(frame)
+                if len(frames) == 15:
+                    yield frames
+                    frames = []
+        
+        if frames:
+            yield frames
+    
+    def release(self):
+        self.cap.release()
+
+# 데이터베이스와의 연결을 관리하고, 특정 번호판 번호를 조회하는 기능을 제공
+class DatabaseConnection:
+    def __init__(self, dbname, user, password, host, port):
+        self.conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
+        self.cur = self.conn.cursor()
+    
+    def query_number(self, number):
+        query = "SELECT num FROM bus_number WHERE num = %s;"
+        self.cur.execute(query, (number,))
+        return self.cur.fetchone()
+    
+    def close(self):
+        self.cur.close()
+        self.conn.close()
 
 
 class API():
@@ -102,3 +155,87 @@ class API():
                 return i, True
         print("could not found the value in the list")
         return None, False
+    
+
+
+class ImageProcessor:
+    @staticmethod
+    def preprocess_image(image):
+        """이미지 전처리 함수."""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(6, 6))
+        gray = clahe.apply(gray)
+        blurred = cv2.GaussianBlur(cv2.medianBlur(gray, 7), (5, 5), 0)
+        _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, morph_kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, morph_kernel)
+        
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        for i in range(1, num_labels):
+            if stats[i, cv2.CC_STAT_AREA] < 70:
+                binary[labels == i] = 0
+        
+        return binary
+
+
+
+# 프레임을 처리하여 번호판을 인식하고, 인식된 번호를 데이터베이스에서 조회하는 기능을 제공
+# YOLO 모델을 사용하여 번호판을 감지하고, EasyOCR을 사용하여 번호판의 텍스트를 인식
+class FrameProcessor:
+    def __init__(self, model, plate_class_indices, reader, width, height, padding, cur, conn, min_confidence):
+        self.model = model
+        self.plate_class_indices = plate_class_indices
+        self.reader = reader
+        self.width = width
+        self.height = height
+        self.padding = padding
+        self.cur = cur
+        self.conn = conn
+        self.min_confidence = min_confidence
+        self.processed_numbers = set()
+    
+    def process_frame(self, frame_queue):
+        while True:
+            frames = frame_queue.get()
+            if frames is None:
+                break
+
+            ocr_results = []
+
+            for frame in frames:
+                results = self.model(frame)
+                boxes = results[0].boxes if len(results) > 0 else []
+
+                for box in boxes:
+                    cls = int(box.cls)
+                    if cls in self.plate_class_indices:
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        x1, y1 = max(x1 - self.padding, 0), max(y1 - self.padding, 0)
+                        x2, y2 = min(x2 + self.padding, self.width), min(y2 + self.padding, self.height)
+
+                        plate_image = frame[y1:y2, x1:x2]
+                        if plate_image.size == 0:
+                            continue
+
+                        preprocessed_img = ImageProcessor.preprocess_image(plate_image)
+                        ocr_result = self.reader.readtext(preprocessed_img, detail=1)
+
+                        for res in ocr_result:
+                            text, confidence = res[1], res[2]
+                            if confidence >= self.min_confidence:
+                                text = ''.join(filter(str.isdigit, text))
+                                if 2 <= len(text) <= 4:
+                                    ocr_results.append(text)
+
+            if ocr_results:
+                most_common_text = Counter(ocr_results).most_common(1)[0][0]
+                if most_common_text not in self.processed_numbers:
+                    print(f"Detected text: {most_common_text}")
+
+                    row = self.cur.query_number(most_common_text)
+
+                    if row:
+                        print(f"Matching number in DB: {row[0]}")
+                        self.processed_numbers.add(most_common_text)
