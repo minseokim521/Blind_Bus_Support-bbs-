@@ -1,4 +1,4 @@
-from func_utils import API, YOLOVideoCapture, FrameProcessor, text_to_speech_ssml
+from func_utils import API, YOLOVideoCapture, FrameProcessor, text_to_speech_ssml, gps_sub
 import psycopg2
 import requests
 import xml.etree.ElementTree as ET
@@ -7,7 +7,9 @@ from queue import Queue
 import easyocr
 import os
 import pygame
-
+import rospy
+from sensor_msgs.msg import NavSatFix
+import sys
 
 # 환경 변수 설정
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = '/Users/idongmyeong/Yolo/full_code/zippy-brand-429513-k7-6ef67897540d.json'
@@ -65,17 +67,17 @@ model_path = '/home/LOE/workspace/yolo/Archive/models/best.pt'
 ------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
+latitude, longitude = None, None  # 전역 변수로 설정
+gps_sub()
 bus_api = API()
 
 Bus_num = '5618'
 Station_name = '영등포역'
-X_location = 126.90509208
-Y_locatioin = 37.5158657465
+
 radius = 5
 
 # # # # 실시간 좌표를 기반으로 가장 가까운 버스 정류장의 id 조회
-# response1 = bus_api.station_pose(X_location, Y_locatioin, radius)
+# response1 = bus_api.station_pose(latitude, longitude , radius)
 
 # # # #xml 값 가져옴
 # root1 = ET.fromstring(response1)
@@ -159,3 +161,8 @@ while pygame.mixer.music.get_busy():
 
 print('sound_ends')
 print("end of the code")
+
+
+
+
+

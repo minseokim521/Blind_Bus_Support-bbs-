@@ -1,13 +1,16 @@
 import psycopg2
 import requests
 import xml.etree.ElementTree as ET
-import cv2
+import time
 from collections import Counter
 import cv2
 from ultralytics import YOLO
 import pyaudio
 from google.cloud import speech
 from google.cloud import texttospeech
+import rospy
+import sys
+from sensor_msgs.msg import NavSatFix
 
 # YOLO 모델을 초기화하고 비디오에서 프레임을 읽는 기능을 제공
 # 비디오 파일에서 프레임을 일정한 간격으로 추출하여 처리할 수 있게 함
@@ -22,23 +25,26 @@ class YOLOVideoCapture:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.frame_interval = int(self.fps / 5)
     
     def read_frames(self):
         frames = []
-        while self.cap.isOpened():
+        start_time = time.time()  # 시작 시간 설정
+
+        while True:
             ret, frame = self.cap.read()
             if not ret:
-                break
+                break  # 프레임을 읽지 못하면 종료
 
-            if int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) % self.frame_interval == 0:
+            current_time = time.time()
+            if current_time - start_time <= 1.0:  # 1초 이내에만 프레임 캡처
                 frames.append(frame)
-                if len(frames) == 15:
-                    yield frames
-                    frames = []
-        
+            else:
+                break  # 1초가 지나면 루프를 종료
+
         if frames:
             yield frames
+
+        self.release()  # 비디오 캡처를 해제
     
     def release(self):
         self.cap.release()
@@ -304,3 +310,25 @@ def text_to_speech_ssml(ssml_text, output_file):
     with open(output_file, "wb") as out:
         out.write(response.audio_content)
         print(f'Audio content written to file "{output_file}"')
+
+#=============================== GPS ===========================
+# ROS 노드 초기화 및 GPS 데이터 수신
+def gps_callback(msg):
+    global latitude, longitude  # 전역 변수 접근
+    latitude = format(msg.latitude, f'.{sys.float_info.dig}f')
+    longitude = format(msg.longitude, f'.{sys.float_info.dig}f')
+    print(f"Latitude: {latitude}, Longitude: {longitude}")
+
+    # 필요한 작업이 끝나면 노드 종료
+    rospy.signal_shutdown('GPS data received.')
+
+def gps_sub():
+    global latitude, longitude
+    rospy.init_node('gps_receive_node', anonymous=True)
+    rospy.Subscriber("ublox_gps/fix", NavSatFix, gps_callback)
+    
+    # 노드가 종료될 때까지 대기
+    while not rospy.is_shutdown():
+        rospy.sleep(0.1)  # 짧은 시간 대기
+    
+    return latitude, longitude
