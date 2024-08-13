@@ -67,15 +67,29 @@ class ImageProcessor:
 
 
 class API():
-    def __init__(self, Bus_num, Station_name):
-        self.Bus_num = Bus_num
-        self.Station_name = Station_name
+    def __init__(self):
+        pass
             
-    def database_query(self, Bus_num, Station_name):
+    def database_query(self, table, key1, key2, val):
+        """
+        지정된 테이블에서 키와 값을 기준으로 데이터를 조회합니다.
+
+        Parameters:
+            table (str): 조회할 table의 이름. EX) bus, station.
+            key1 (str): 해당 테이블에 리턴받고자하는 column의 key값.
+            key2 (str): 해당 테이블 에서 검색할 value가 해당하는 column.
+            val (str): 조회 기준이 될 값.
+
+        Returns:
+            list: 조회 결과를 리스트 형태로 반환.
+
+        Raises:
+            DatabaseError: 데이터베이스 조회 중 오류가 발생한 경우.
+        """
         #데이터베이스에 연결시도
         try:
             # 데이터베이스 연결 & 커넥트 객체 생성
-            conn = psycopg2.connect(host="172.28.175.20", dbname="postgres", user="postgres", password="postgres")
+            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres")
         except:
             print("Not Connected!.")
 
@@ -83,32 +97,23 @@ class API():
         cursor = conn.cursor()
 
         # 쿼리문
-        sql_bus = "SELECT routeid FROM bus WHERE bus_id = %s;"
-        sql_station = "SELECT node_id FROM station WHERE station_name = %s;"
+        sql_query = f"SELECT {key1} FROM {table} WHERE {key2} = %s;"
+
         # 쿼리실행
-        cursor.execute(sql_bus, (Bus_num,))
-        #fetchone은 쿼리에 해당하는 열을 튜플형태로 반환
-        bus_result = cursor.fetchone()
+        cursor.execute(sql_query, (val,))
+        #fetchone은 쿼리에 해당하는 열을 튜플형태로 반환, 없다면 None
+        query_result = cursor.fetchone()
 
         # 예외 처리
-        if bus_result:
-            print("Bus Route ID :", bus_result[0])
+        if query_result:
+            print("queryed value : ", query_result[0])
         else:
-            print("No bus found with the given bus_id")
+            print("No value found with the given value")
 
-
-        cursor.execute(sql_station, (Station_name,))
-
-        station_result = cursor.fetchone()
-
-        if station_result:
-            print("Staion ID :", station_result[0])
-        else:
-            print("No Station found with the given Station_name")
 
         # 데이터베이스 연결 끊기
         conn.close()
-        return bus_result, station_result
+        return query_result
     
     # 특정 정류장의 정보(그 정류장에서 운행하는 버스들, 도착정보)
     def station_bus_list(self, station_result):
@@ -121,11 +126,28 @@ class API():
         response = requests.get(url, params=params)
         return response.content
 
+    # def station_bus_list(self, station_result):
+    #     url = 'http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByStId'
+    #     service_key = "your_valid_service_key"
+
+    #     params = {
+    #         'serviceKey': service_key,
+    #         'stId': str(station_result)
+    #     }
+
+    #     print(f"Calling API with parameters: {params}")  # 파라미터 로깅
+    #     response = requests.get(url, params=params)
+    #     if response.status_code == 200:
+    #         print("API 호출 성공, 응답 데이터: ", response.text)
+    #         return response.content
+    #     else:
+    #         print(f"API 호출 실패, 상태 코드: {response.status_code}, 응답: {response.text}")
+    #         return None
 
     #  특정 버스 노선이 경유하는 버스 정류소의 정보
     def bus_station_list(self, bus_result):
         url = 'http://ws.bus.go.kr/api/rest/busRouteInfo/getStaionByRoute'
-        service_key = "lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=="
+        service_key = 'lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=='
 
         params ={'serviceKey' : service_key,
                 'busRouteId' : str(bus_result) }
@@ -137,13 +159,28 @@ class API():
     # 정류소 노선별 교통약자 도착예정정보
     def station_arrival_info(self, station_result, bus_result, ord):
         url = 'http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByRoute'
-        service_key = "lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=="
+        service_key = 'lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=='
+
 
 
         params ={'serviceKey' : service_key,
                 'stId' : str(station_result),
                 'busRouteId' : str(bus_result),
                 'ord' : str(ord) }
+
+        response = requests.get(url, params=params)
+        return response.content
+    
+        #  좌표기반 버스정류장 위치 조회
+    def station_pose(self, X_location, Y_location, radius):
+        url = 'http://ws.bus.go.kr/api/rest/busRouteInfo/getStaionByRoute'
+        service_key = 'lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=='
+
+        params ={'serviceKey' : service_key,
+                'tmX' : str(X_location),
+                'tmY' : str(Y_location),
+                'radius' : str(radius)
+                }
 
         response = requests.get(url, params=params)
         return response.content
