@@ -67,8 +67,13 @@ model_path = '/home/LOE/workspace/yolo/Archive/models/best.pt'
 ------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-latitude, longitude = None, None  # 전역 변수로 설정
-gps_sub()
+# GPS 데이터를 받아오고 그 값을 변수에 저장
+latitude, longitude = gps_sub()
+
+if latitude is None or longitude is None:
+    print("Failed to get GPS coordinates")
+else:
+    print(f"Received coordinates: Latitude={latitude}, Longitude={longitude}")
 bus_api = API()
 
 Bus_num = '5618'
@@ -161,7 +166,6 @@ while pygame.mixer.music.get_busy():
 
 print('sound_ends')
 print("end of the code")
-
 
 
 

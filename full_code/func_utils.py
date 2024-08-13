@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 import time
 from collections import Counter
 import cv2
+import threading
 from ultralytics import YOLO
 import pyaudio
 from google.cloud import speech
@@ -209,30 +210,6 @@ class API():
         return None, False
     
 
-
-# class ImageProcessor:
-#     @staticmethod
-#     def preprocess_image(image):
-#         """이미지 전처리 함수."""
-#         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-#         clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(6, 6))
-#         gray = clahe.apply(gray)
-#         blurred = cv2.GaussianBlur(cv2.medianBlur(gray, 7), (5, 5), 0)
-#         _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-#         morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-#         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, morph_kernel)
-#         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, morph_kernel)
-        
-#         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-#         for i in range(1, num_labels):
-#             if stats[i, cv2.CC_STAT_AREA] < 70:
-#                 binary[labels == i] = 0
-        
-#         return binary
-
-
-
 # 프레임을 처리하여 번호판을 인식하고, 인식된 번호를 데이터베이스에서 조회하는 기능을 제공
 # YOLO 모델을 사용하여 번호판을 감지하고, EasyOCR을 사용하여 번호판의 텍스트를 인식
 class FrameProcessor:
@@ -313,22 +290,34 @@ def text_to_speech_ssml(ssml_text, output_file):
 
 #=============================== GPS ===========================
 # ROS 노드 초기화 및 GPS 데이터 수신
+# 전역 변수 및 스레드 안전성 확보를 위한 락
+latitude = None
+longitude = None
+gps_lock = threading.Lock()
+
 def gps_callback(msg):
-    global latitude, longitude  # 전역 변수 접근
-    latitude = format(msg.latitude, f'.{sys.float_info.dig}f')
-    longitude = format(msg.longitude, f'.{sys.float_info.dig}f')
-    print(f"Latitude: {latitude}, Longitude: {longitude}")
+    global latitude, longitude
+    with gps_lock:
+        latitude = format(msg.latitude, f'.{sys.float_info.dig}f')
+        longitude = format(msg.longitude, f'.{sys.float_info.dig}f')
+        print(f"Latitude: {latitude}, Longitude: {longitude}")
+        rospy.signal_shutdown('GPS data received.')  # 데이터를 받았으므로 노드를 종료
 
-    # 필요한 작업이 끝나면 노드 종료
-    rospy.signal_shutdown('GPS data received.')
-
-def gps_sub():
+def gps_sub(timeout=10):
     global latitude, longitude
     rospy.init_node('gps_receive_node', anonymous=True)
     rospy.Subscriber("ublox_gps/fix", NavSatFix, gps_callback)
-    
-    # 노드가 종료될 때까지 대기
+
+    start_time = time.time()
+
+    # GPS 데이터가 도착할 때까지 대기
     while not rospy.is_shutdown():
+        with gps_lock:
+            if latitude is not None and longitude is not None:
+                return latitude, longitude
         rospy.sleep(0.1)  # 짧은 시간 대기
-    
-    return latitude, longitude
+        if time.time() - start_time > timeout:
+            print("Timeout: Failed to receive GPS data.")
+            break
+
+    return None, None
