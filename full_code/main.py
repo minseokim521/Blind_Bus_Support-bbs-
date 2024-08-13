@@ -14,7 +14,7 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = '/Users/idongmyeong/Yolo/full_cod
 
 # 비디오 경로와 모델 경로 설정
 video_path = '/home/LOE/workspace/yolo/Archive/vid/KakaoTalk_20240812_133651375.mp4'
-model_path = '/home/LOE/workspace/yolo/Archive/models/best_3000_s.pt'
+model_path = '/home/LOE/workspace/yolo/Archive/models/best.pt'
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ------------------------------------------------------------------------------------------------------------------------------------
