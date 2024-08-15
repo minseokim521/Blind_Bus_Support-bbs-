@@ -9,9 +9,10 @@ from ultralytics import YOLO
 import pyaudio
 from google.cloud import speech
 from google.cloud import texttospeech
-import rospy
+# import rospy
 import sys
-from sensor_msgs.msg import NavSatFix
+# from sensor_msgs.msg import NavSatFix
+import numpy as np
 
 # YOLO 모델을 초기화하고 비디오에서 프레임을 읽는 기능을 제공
 # 비디오 파일에서 프레임을 일정한 간격으로 추출하여 처리할 수 있게 함
@@ -96,7 +97,7 @@ class API():
         #데이터베이스에 연결시도
         try:
             # 데이터베이스 연결 & 커넥트 객체 생성
-            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres")
+            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres", port='5432')
         except:
             print("Not Connected!.")
 
@@ -122,6 +123,57 @@ class API():
         conn.close()
         return query_result
     
+    def database_query_specific_column(self, table, column_name):
+        """
+        지정된 테이블에서 특정 열의 모든 데이터를 조회합니다.
+
+        Parameters:
+            table (str): 조회할 table의 이름.
+            column_name (str): 데이터를 가져올 column의 이름.
+
+        Returns:
+            list: 조회된 데이터의 리스트.
+
+        Raises:
+            Exception: 데이터베이스 연결 실패 또는 쿼리 실행 중 오류 발생 시 예외 발생.
+        """
+        try:
+            # 데이터베이스 연결
+            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres",port='5432')
+            cursor = conn.cursor()
+
+            # SQL 쿼리 실행 (주의: column_name을 쿼리에 직접 포함시킬 때 SQL 인젝션 위험이 있으므로 신뢰할 수 있는 입력만 처리해야 함)
+            sql_query = f"SELECT {column_name} FROM {table};"
+            cursor.execute(sql_query)
+
+            # 결과 모두 가져오기
+            results = cursor.fetchall()
+
+            # 연결 종료
+            conn.close()
+
+            if results:
+                print(f"successfully queried a column named {column_name}")
+                return results
+            else:
+                print("No data found for the specified column")
+                return []
+
+        except Exception as e:
+            print(f"Database error: {str(e)}")
+            raise
+    def find_nearest_index(self, x_coord, y_coord, x_list, y_list):
+        # x_list와 y_list를 NumPy 배열로 변환
+        x_array = np.array(x_list)
+        y_array = np.array(y_list)
+
+        # 주어진 x_coord, y_coord와 각 좌표 간의 거리 계산
+        distances = np.sqrt((x_array - x_coord)**2 + (y_array - y_coord)**2)
+
+        # 가장 작은 거리의 인덱스 반환
+        nearest_index = np.argmin(distances)
+        return nearest_index
+
     # 특정 정류장의 정보(그 정류장에서 운행하는 버스들, 도착정보)
     def station_bus_list(self, station_result):
         url = 'http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByStId'
