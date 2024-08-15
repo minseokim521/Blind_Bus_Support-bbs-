@@ -7,8 +7,8 @@ from queue import Queue
 import easyocr
 import os
 import pygame
-# import rospy
-# from sensor_msgs.msg import NavSatFix
+import rospy
+from sensor_msgs.msg import NavSatFix
 import sys
 import simpleaudio as sa
 from pydub import AudioSegment
@@ -16,11 +16,11 @@ import numpy as np
 
 
 # 환경 변수 설정
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = '/Users/idongmyeong/Yolo2/Blind_Bus_Support-bbs-/full_code/zippy-brand-429513-k7-6ef67897540d.json'
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = '/home/minseokim521/catkin_ws/src/bus/zippy-brand-429513-k7-6ef67897540d.json'
 
 # 비디오 경로와 모델 경로 설정
-video_path = '/home/LOE/workspace/yolo/Archive/vid/KakaoTalk_20240812_133651375.mp4'
-model_path = '/home/LOE/workspace/yolo/Archive/models/best.pt'
+# video_path = '/home/LOE/workspace/yolo/Archive/vid/KakaoTalk_20240812_133651375.mp4'
+model_path = "/home/minseokim521/catkin_ws/src/bus/Blind_Bus_Support-bbs-/models/best_3000_n.pt"
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ------------------------------------------------------------------------------------------------------------------------------------
@@ -30,7 +30,7 @@ model_path = '/home/LOE/workspace/yolo/Archive/models/best.pt'
 ------------------------------------------------------------------------------------------------------------------------------------
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 # YOLO 비디오 캡처와 EasyOCR 초기화
-video_capture = YOLOVideoCapture(model_path, video_path)
+video_capture = YOLOVideoCapture(model_path)
 easy_ocr = easyocr.Reader(['en'], gpu=True)
 
 # 번호판 인식 클래스 이름 설정 및 인덱스 확인
@@ -39,7 +39,7 @@ plate_class_indices = [idx for idx, name in video_capture.model.names.items() if
 
 # YOLO 모델로 프레임 처리
 padding = 5
-min_confidence = 0.9
+min_confidence = 0.8
 frame_processor = FrameProcessor(
     video_capture.model, plate_class_indices, easy_ocr,
     video_capture.width, video_capture.height, padding, min_confidence
@@ -47,6 +47,14 @@ frame_processor = FrameProcessor(
 ocr_number = []
 # 비디오에서 프레임을 읽어와 처리
 for i, frames in enumerate(video_capture.read_frames()):
+    for frame in frames:
+        results = video_capture.model(frame)
+        #print(f"Detection results: {results}")  # YOLO 모델의 감지 결과를 출력합니다.
+        # if results[0].boxes:
+        #     print(f"Detected boxes: {results[0].boxes.xyxy}")  # 감지된 박스의 좌표를 출력합니다.
+        # else:
+        #     print("No boxes detected by YOLO model.")
+
     ocr_number.append(frame_processor.process_frame(frames))
     if ocr_number[i]:
         print(f"OCR 결과로 추출된 번호판: {ocr_number[i]}")
@@ -71,17 +79,46 @@ video_capture.release()
 ------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-# GPS 데이터를 받아오고 그 값을 변수에 저장
-# latitude, longitude = gps_sub()
-latitude, longitude = 126.90509208, 37.5158657465
+if ocr_number[0] == None:
+    msg1 = "아무 번호도 인식되지 않았습니다."
+    print("아무 번호도 인식되지 않았습니다.")
+    text_to_speech_ssml(msg1, "ocr.mp3")
+        
+    # 소리재생
 
-if latitude is None or longitude is None:
-    print("Failed to get GPS coordinates")
-else:
-    print(f"Received coordinates: Latitude={latitude}, Longitude={longitude}")
+    print('sound playing')
+
+    # MP3 파일 로드
+    sound = AudioSegment.from_mp3("ocr.mp3")
+
+    # WAV 파일로 변환
+    sound.export("ocr.wav", format="wav")
+
+    # 오디오 파일 로드
+    wave_obj = sa.WaveObject.from_wave_file("ocr.wav")
+
+    # 오디오 재생
+    play_obj = wave_obj.play()
+    play_obj.wait_done()  # 재생이 끝날 때까지 기다림
+
+    print('sound_ends')
+    print("end of the code")
+    exit()
+        
+
+
+# GPS 데이터를 받아오고 그 값을 변수에 저장
+
+latitude, longitude = gps_sub()
+# latitude, longitude = 126.90509208, 37.5158657465
+
+# if latitude is None or longitude is None:
+#     print("Failed to get GPS coordinates")
+# else:
+#     print(f"Received coordinates: Latitude={latitude}, Longitude={longitude}")
 bus_api = API()
 
-Bus_num = filtered_ocr_numbers[1]
+Bus_num = filtered_ocr_numbers[0]
 
 radius = 5
 
@@ -101,11 +138,19 @@ radius = 5
 #데이터 베이스 상에서 버스 번호와 정류소 이름에 해당하는 id값 가져오기
 bus_result = bus_api.database_query('bus', 'routeid', 'bus_id', Bus_num)
 station_list = bus_api.database_query_specific_column("station", 'node_id')
+station_name_list = bus_api.database_query_specific_column("station", 'station_name')
 X_locations = bus_api.database_query_specific_column("station", 'X_location')
 Y_locations = bus_api.database_query_specific_column("station", 'Y_location')
+
+# 리스트 평탄화
+X_locations = [x[0] for x in X_locations]
+Y_locations = [y[0] for y in Y_locations]
+
+# 가장 가까운 정류소 인덱스 찾기
 index = bus_api.find_nearest_index(latitude, longitude, X_locations, Y_locations)
+station_name = station_name_list[index]
 station_id = station_list[index]
-print(station_id)
+print(station_id, station_name)
 # station_result2 = bus_api.database_query('station', 'ars_id', 'station_name', Station_name)
 
 if bus_result == None:

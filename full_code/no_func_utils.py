@@ -9,11 +9,8 @@ from ultralytics import YOLO
 import pyaudio
 from google.cloud import speech
 from google.cloud import texttospeech
-import rospy
-import os
 import sys
-from sensor_msgs.msg import NavSatFix
-import numpy as np
+import os
 
 # YOLO 모델을 초기화하고 비디오에서 프레임을 읽는 기능을 제공
 # 비디오 파일에서 프레임을 일정한 간격으로 추출하여 처리할 수 있게 함
@@ -28,12 +25,6 @@ class YOLOVideoCapture:
             video_device = "/dev/video3"
             self.cap = cv2.VideoCapture(video_device)
 
-            # 해상도를 명시적으로 1920x1080으로 설정
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-            # 자동 초점 설정 (자동 초점을 지원하는 경우)
-            self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)  # 1로 설정하여 자동 초점 활성화
-
             # 웹캠 연결 확인
             if not self.cap.isOpened():
                 print("웹캠을 열 수 없습니다. 웹캠이 제대로 연결되었는지 확인하세요.")
@@ -43,18 +34,11 @@ class YOLOVideoCapture:
                 self.fps = self.cap.get(cv2.CAP_PROP_FPS)
                 self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                print(f"해상도: {self.width}x{self.height}")
-                
-                # 2초 대기 추가
-                print("웹캠 초점 조정 시간을 위해 2초 대기합니다...")
-                time.sleep(2)
-                print("대기 완료, 비디오 캡처를 시작합니다.")
 
         except Exception as e:
             # 모델 로드 실패 시 예외 처리 및 로그 출력
             print(f"모델을 로드하는 중 오류가 발생했습니다: {str(e)}")
             self.model = None  # 모델 로드 실패 시 None으로 설정
-
 
     def read_frames(self):
         frames = []
@@ -67,7 +51,6 @@ class YOLOVideoCapture:
         while True:
             ret, frame = self.cap.read()
             if not ret:
-                print("프레임을 읽지 못했습니다.")
                 break  # 프레임을 읽지 못하면 종료
 
             current_time = time.time()
@@ -80,36 +63,31 @@ class YOLOVideoCapture:
             yield frames
 
         self.release()  # 비디오 캡처를 해제
-
     
     def release(self):
         if self.cap:
             self.cap.release()
-        cv2.destroyAllWindows()
-
 
 class ImageProcessor:
     @staticmethod
     def preprocess_image(image):
-        """이미지 전처리 함수."""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(6, 6))
-        gray = clahe.apply(gray)
-        blurred = cv2.GaussianBlur(cv2.medianBlur(gray, 7), (5, 5), 0)
-        _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        """이미지 전처리 함수 (주석 처리)."""
+        # gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(6, 6))
+        # gray = clahe.apply(gray)
+        # blurred = cv2.GaussianBlur(cv2.medianBlur(gray, 7), (5, 5), 0)
+        # _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
-        morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, morph_kernel)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, morph_kernel)
+        # morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        # binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, morph_kernel)
+        # binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, morph_kernel)
         
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-        for i in range(1, num_labels):
-            if stats[i, cv2.CC_STAT_AREA] < 70:
-                binary[labels == i] = 0
+        # num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        # for i in range(1, num_labels):
+        #     if stats[i, cv2.CC_STAT_AREA] < 70:
+        #         binary[labels == i] = 0
         
-        return binary
-
-
+        return image  # 원본 이미지를 그대로 반환
 
 class API():
     def __init__(self):
@@ -134,7 +112,7 @@ class API():
         #데이터베이스에 연결시도
         try:
             # 데이터베이스 연결 & 커넥트 객체 생성
-            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres", port='5432')
+            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres")
         except:
             print("Not Connected!.")
 
@@ -160,57 +138,6 @@ class API():
         conn.close()
         return query_result
     
-    def database_query_specific_column(self, table, column_name):
-        """
-        지정된 테이블에서 특정 열의 모든 데이터를 조회합니다.
-
-        Parameters:
-            table (str): 조회할 table의 이름.
-            column_name (str): 데이터를 가져올 column의 이름.
-
-        Returns:
-            list: 조회된 데이터의 리스트.
-
-        Raises:
-            Exception: 데이터베이스 연결 실패 또는 쿼리 실행 중 오류 발생 시 예외 발생.
-        """
-        try:
-            # 데이터베이스 연결
-            conn = psycopg2.connect(host="122.44.85.37", dbname="postgres", user="postgres", password="postgres",port='5432')
-            cursor = conn.cursor()
-
-            # SQL 쿼리 실행 (주의: column_name을 쿼리에 직접 포함시킬 때 SQL 인젝션 위험이 있으므로 신뢰할 수 있는 입력만 처리해야 함)
-            sql_query = f"SELECT {column_name} FROM {table};"
-            cursor.execute(sql_query)
-
-            # 결과 모두 가져오기
-            results = cursor.fetchall()
-
-            # 연결 종료
-            conn.close()
-
-            if results:
-                print(f"successfully queried a column named {column_name}")
-                return results
-            else:
-                print("No data found for the specified column")
-                return []
-
-        except Exception as e:
-            print(f"Database error: {str(e)}")
-            raise
-    def find_nearest_index(self, x_coord, y_coord, x_list, y_list):
-        # x_list와 y_list를 NumPy 배열로 변환
-        x_array = np.array(x_list)
-        y_array = np.array(y_list)
-
-        # 주어진 x_coord, y_coord와 각 좌표 간의 거리 계산
-        distances = np.sqrt((x_array - x_coord)**2 + (y_array - y_coord)**2)
-
-        # 가장 작은 거리의 인덱스 반환
-        nearest_index = np.argmin(distances)
-        return nearest_index
-
     # 특정 정류장의 정보(그 정류장에서 운행하는 버스들, 도착정보)
     def station_bus_list(self, station_result):
         url = 'http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByStId'
@@ -221,6 +148,24 @@ class API():
 
         response = requests.get(url, params=params)
         return response.content
+
+    def station_bus_list(self, station_result):
+        url = 'http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByStId'
+        service_key = "lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=="
+
+        params = {
+            'serviceKey': service_key,
+            'stId': str(station_result)
+        }
+
+        print(f"Calling API with parameters: {params}")  # 파라미터 로깅
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            print("API 호출 성공, 응답 데이터: ", response.text)
+            return response.content
+        else:
+            print(f"API 호출 실패, 상태 코드: {response.status_code}, 응답: {response.text}")
+            return None
 
     #  특정 버스 노선이 경유하는 버스 정류소의 정보
     def bus_station_list(self, bus_result):
@@ -239,8 +184,6 @@ class API():
         url = 'http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByRoute'
         service_key = 'lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=='
 
-
-
         params ={'serviceKey' : service_key,
                 'stId' : str(station_result),
                 'busRouteId' : str(bus_result),
@@ -251,7 +194,7 @@ class API():
     
         #  좌표기반 버스정류장 위치 조회
     def station_pose(self, X_location, Y_location, radius):
-        url = 'http://ws.bus.go.kr/api/rest/busRouteInfo/getStaionByRoute'
+        url = 'http://ws.bus.go.kr/api/rest/stationinfo/getStationByPos'
         service_key = 'lnGvRUsSrOgezp/xjHmRf1XJipLQd9ANFdkUk5w2kB1FaTDTAcS88zmKBViC6HYFRcWfhGjkuNQD85aNrvoTTw=='
 
         params ={'serviceKey' : service_key,
@@ -339,16 +282,18 @@ class FrameProcessor:
                         continue
 
                     # Save the cropped plate image for debugging
-                    # plate_image_path = os.path.join(self.plate_img_dir, f"plate_frame{frame_idx}_box{box_idx}.png")
-                    # cv2.imwrite(plate_image_path, plate_image)
-                    # print(f"Saved plate image to {plate_image_path}")
+                    plate_image_path = os.path.join(self.plate_img_dir, f"plate_frame{frame_idx}_box{box_idx}.png")
+                    cv2.imwrite(plate_image_path, plate_image)
+                    print(f"Saved plate image to {plate_image_path}")
 
-                    preprocessed_img = ImageProcessor.preprocess_image(plate_image)
+                    # 전처리하지 않고 원본 이미지를 OCR로 사용
+                    # preprocessed_img = ImageProcessor.preprocess_image(plate_image)
+                    preprocessed_img = plate_image
                     
                     # Save the preprocessed image for further inspection
-                    # preprocessed_image_path = os.path.join(self.preprocessed_img_dir, f"preprocessed_plate_frame{frame_idx}_box{box_idx}.png")
-                    # cv2.imwrite(preprocessed_image_path, preprocessed_img)
-                    # print(f"Saved preprocessed plate image to {preprocessed_image_path}")
+                    preprocessed_image_path = os.path.join(self.preprocessed_img_dir, f"preprocessed_plate_frame{frame_idx}_box{box_idx}.png")
+                    cv2.imwrite(preprocessed_image_path, preprocessed_img)
+                    print(f"Saved preprocessed plate image to {preprocessed_image_path}")
 
                     ocr_result = self.reader.readtext(preprocessed_img, detail=1)
 
@@ -357,7 +302,7 @@ class FrameProcessor:
                     else:
                         for res in ocr_result:
                             text, confidence = res[1], res[2]
-                            # print(f"OCR detected text: {text}, Confidence: {confidence}")
+                            print(f"OCR detected text: {text}, Confidence: {confidence}")
                             if confidence >= self.min_confidence:
                                 text = ''.join(filter(str.isdigit, text))
                                 if 2 <= len(text) <= 4:
@@ -403,21 +348,33 @@ def text_to_speech_ssml(ssml_text, output_file):
 #=============================== GPS ===========================
 # ROS 노드 초기화 및 GPS 데이터 수신
 # 전역 변수 및 스레드 안전성 확보를 위한 락
-latitude = None
-longitude = None
-gps_lock = threading.Lock()
+# latitude = None
+# longitude = None
+# gps_lock = threading.Lock()
 
-def gps_callback(msg):
-    global latitude, longitude
-    with gps_lock:
-        latitude = float(format(msg.latitude, f'.{sys.float_info.dig}f'))
-        longitude = float(format(msg.longitude, f'.{sys.float_info.dig}f'))
-        print(f"Latitude: {latitude}, Longitude: {longitude}")
-        rospy.signal_shutdown('GPS data received.')
-        
+# def gps_callback(msg):
+#     global latitude, longitude
+#     with gps_lock:
+#         latitude = format(msg.latitude, f'.{sys.float_info.dig}f')
+#         longitude = format(msg.longitude, f'.{sys.float_info.dig}f')
+#         print(f"Latitude: {latitude}, Longitude: {longitude}")
+#         rospy.signal_shutdown('GPS data received.')  # 데이터를 받았으므로 노드를 종료
 
-def gps_sub(timeout=10):
-    latitude, longitude = 0,0
-    rospy.init_node('gps_receive_node', anonymous=True)
-    rospy.Subscriber("ublox_gps/fix", NavSatFix, gps_callback)
-    return latitude, longitude
+# def gps_sub(timeout=10):
+#     global latitude, longitude
+#     rospy.init_node('gps_receive_node', anonymous=True)
+#     rospy.Subscriber("ublox_gps/fix", NavSatFix, gps_callback)
+
+#     start_time = time.time()
+
+#     # GPS 데이터가 도착할 때까지 대기
+#     while not rospy.is_shutdown():
+#         with gps_lock:
+#             if latitude is not None and longitude is not None:
+#                 return latitude, longitude
+#         rospy.sleep(0.1)  # 짧은 시간 대기
+#         if time.time() - start_time > timeout:
+#             print("Timeout: Failed to receive GPS data.")
+#             break
+
+#     return None, None
