@@ -4,15 +4,15 @@ import xml.etree.ElementTree as ET
 import time
 from collections import Counter
 import cv2
-import threading
 from ultralytics import YOLO
 import pyaudio
 from google.cloud import speech
 from google.cloud import texttospeech
-import rospy
-import os
-import sys
+import rclpy
+from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
+import sys
+import os
 import numpy as np
 import re
 import wave
@@ -475,22 +475,36 @@ def text_to_speech_ssml(ssml_text, output_file):
 
 #=============================== GPS ===========================
 # ROS 노드 초기화 및 GPS 데이터 수신
-# 전역 변수 및 스레드 안전성 확보를 위한 락
+# 전역 변수
 latitude = None
 longitude = None
-gps_lock = threading.Lock()
 
-def gps_callback(msg):
-    global latitude, longitude
-    with gps_lock:
+class GPSNode(Node):
+    def __init__(self):
+        super().__init__('gps_receive_node')
+        self.create_subscription(
+            NavSatFix,
+            '/fix',
+            self.gps_callback,
+            10
+        )
+
+    def gps_callback(self, msg):
+        global latitude, longitude
         latitude = float(format(msg.latitude, f'.{sys.float_info.dig}f'))
         longitude = float(format(msg.longitude, f'.{sys.float_info.dig}f'))
         print(f"Latitude: {latitude}, Longitude: {longitude}")
-        rospy.signal_shutdown('GPS data received.')
-        
+        # 노드 종료를 위한 조건 (옵션): 데이터를 수신하면 노드 종료
+        self.get_logger().info('GPS data received.')
 
-def gps_sub(timeout=10):
-    latitude, longitude = 0,0
-    rospy.init_node('gps_receive_node', anonymous=True)
-    rospy.Subscriber("ublox_gps/fix", NavSatFix, gps_callback)
+def gps_sub():
+    rclpy.init()
+    gps_node = GPSNode()
+    
+    # 노드를 계속 실행하여 데이터 수신
+    rclpy.spin(gps_node)
+    
+    # 노드 종료 후 정리
+    gps_node.destroy_node()
+    rclpy.shutdown()
     return latitude, longitude
