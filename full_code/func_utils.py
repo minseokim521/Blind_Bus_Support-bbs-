@@ -14,6 +14,7 @@ import os
 import sys
 from sensor_msgs.msg import NavSatFix
 import numpy as np
+import re
 
 # YOLO 모델을 초기화하고 비디오에서 프레임을 읽는 기능을 제공
 # 비디오 파일에서 프레임을 일정한 간격으로 추출하여 처리할 수 있게 함
@@ -370,6 +371,41 @@ class FrameProcessor:
                 return most_common_text
 
         return None
+    
+#=========================== STT =============================
+
+def recognize_speech_from_audio(filename):
+    stt_client = speech.SpeechClient()
+
+    with open(filename, 'rb') as audio_file:
+        audio_content = audio_file.read()
+    
+    audio = speech.RecognitionAudio(content=audio_content)
+    
+    config = speech.RecognitionConfig(
+        language_code="ko-KR",
+        speech_contexts=[speech.SpeechContext(phrases=["버스", "몇분 남았어", "언제 와", "언제 도착해", "얼마나", "남았어"])],
+    )
+    
+    response = stt_client.recognize(config=config, audio=audio)
+    
+    for result in response.results:
+        return result.alternatives[0].transcript
+    return ""
+
+
+def extract_bus_number(text):
+    matches = re.findall(r'\d{3,}', text)
+    return matches[0] if matches else None
+
+
+def determine_intent(text):
+    if any(phrase in text for phrase in ["몇분 남았어", "언제 와", "언제 도착해", "얼마나", "남았어"]):
+        return "arrival_time"
+    elif "탈건데" in text or "탈거야" in text:
+        return "request_bus"
+    else:
+        return "unknown"
 
 
 #=========================== TTS =============================

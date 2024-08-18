@@ -1,4 +1,4 @@
-from func_utils import API, YOLOVideoCapture, FrameProcessor, text_to_speech_ssml, gps_sub
+from func_utils import API, YOLOVideoCapture, FrameProcessor, text_to_speech_ssml, gps_sub, recognize_speech_from_audio, extract_bus_number, determine_intent
 import psycopg2
 import requests
 import xml.etree.ElementTree as ET
@@ -17,6 +17,37 @@ import numpy as np
 
 # 환경 변수 설정
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = '/home/minseokim521/catkin_ws/src/bus/zippy-brand-429513-k7-6ef67897540d.json'
+
+
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+                                                        STT section
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+# STT를 사용하여 사용자가 타고자 하는 버스 번호와 의도를 음성으로 입력 받음
+audio_filename = "user_input.wav"  # 음성 파일 경로
+recognized_text = recognize_speech_from_audio(audio_filename)
+
+# 인식된 텍스트 확인
+print(f"인식된 텍스트: {recognized_text}")
+
+# 버스 번호와 의도 추출
+bus_number = extract_bus_number(recognized_text)
+intent = determine_intent(recognized_text)
+
+# 추출된 결과 확인
+print(f"추출된 버스 번호: {bus_number}")
+print(f"추출된 의도: {intent}")
+
+if bus_number is None:
+    msg = "버스 번호를 인식할 수 없습니다. 다시 시도해주세요."
+    print(msg)
+    text_to_speech_ssml(msg, "stt_error.mp3")
+    exit()
+
 
 # 비디오 경로와 모델 경로 설정
 # video_path = '/home/LOE/workspace/yolo/Archive/vid/KakaoTalk_20240812_133651375.mp4'
