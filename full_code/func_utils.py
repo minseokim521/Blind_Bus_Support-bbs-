@@ -28,7 +28,7 @@ class YOLOVideoCapture:
             self.model.overrides['verbose'] = False
             
             # 비디오 캡처 초기화
-            video_device = "/dev/video3"
+            video_device = "/dev/video0"
             self.cap = cv2.VideoCapture(video_device)
 
             # 해상도를 명시적으로 1920x1080으로 설정
@@ -48,10 +48,6 @@ class YOLOVideoCapture:
                 self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 print(f"해상도: {self.width}x{self.height}")
                 
-                # 2초 대기 추가
-                print("웹캠 초점 조정 시간을 위해 2초 대기합니다...")
-                time.sleep(2)
-                print("대기 완료, 비디오 캡처를 시작합니다.")
 
         except Exception as e:
             # 모델 로드 실패 시 예외 처리 및 로그 출력
@@ -74,12 +70,13 @@ class YOLOVideoCapture:
                 break  # 프레임을 읽지 못하면 종료
 
             current_time = time.time()
-            if current_time - start_time <= 1.0:  # 1초 이내에만 프레임 캡처
+            if current_time - start_time <= 1.0 and len(frames) < 3:  # 1초 이내에만 3장 이하 프레임 캡처
                 frames.append(frame)
             else:
                 break  # 1초가 지나면 루프를 종료
 
         if frames:
+            print("캡쳐된 frame의 수 : ",len(frames))
             yield frames
 
         self.release()  # 비디오 캡처를 해제
@@ -88,7 +85,7 @@ class YOLOVideoCapture:
     def release(self):
         if self.cap:
             self.cap.release()
-        cv2.destroyAllWindows()
+        
 
 
 class ImageProcessor:
@@ -297,13 +294,13 @@ class FrameProcessor:
         self.min_confidence = min_confidence
         self.processed_numbers = set()
 
-        # 경로 설정
-        self.plate_img_dir = "/home/minseokim521/catkin_ws/src/bus/Blind_Bus_Support-bbs-/plate_img"
-        self.preprocessed_img_dir = "/home/minseokim521/catkin_ws/src/bus/Blind_Bus_Support-bbs-/preprocessed_img"
+        # # 경로 설정
+        # self.plate_img_dir = "/home/minseokim521/catkin_ws/src/bus/Blind_Bus_Support-bbs-/plate_img"
+        # self.preprocessed_img_dir = "/home/minseokim521/catkin_ws/src/bus/Blind_Bus_Support-bbs-/preprocessed_img"
 
-        # 폴더 내 파일 삭제
-        self.clear_directory(self.plate_img_dir)
-        self.clear_directory(self.preprocessed_img_dir)
+        # # 폴더 내 파일 삭제
+        # self.clear_directory(self.plate_img_dir)
+        # self.clear_directory(self.preprocessed_img_dir)
 
     def clear_directory(self, directory):
         """디렉터리 내의 모든 파일을 삭제"""
@@ -339,19 +336,10 @@ class FrameProcessor:
                     plate_image = frame[y1:y2, x1:x2]
                     if plate_image.size == 0:
                         print(f"Skipped empty plate image at frame {frame_idx}, box {box_idx}")
-                        continue
-
-                    # Save the cropped plate image for debugging
-                    # plate_image_path = os.path.join(self.plate_img_dir, f"plate_frame{frame_idx}_box{box_idx}.png")
-                    # cv2.imwrite(plate_image_path, plate_image)
-                    # print(f"Saved plate image to {plate_image_path}")
+                        continue    
 
                     preprocessed_img = ImageProcessor.preprocess_image(plate_image)
-                    
-                    # Save the preprocessed image for further inspection
-                    # preprocessed_image_path = os.path.join(self.preprocessed_img_dir, f"preprocessed_plate_frame{frame_idx}_box{box_idx}.png")
-                    # cv2.imwrite(preprocessed_image_path, preprocessed_img)
-                    # print(f"Saved preprocessed plate image to {preprocessed_image_path}")
+                         
 
                     ocr_result = self.reader.readtext(preprocessed_img, detail=1)
 

@@ -1,170 +1,146 @@
+from func_utils import API, text_to_speech_ssml, gps_sub, recognize_speech_from_audio, extract_bus_number, determine_intent, record_audio
 import os
 import pyaudio
+import simpleaudio as sa
+from pydub import AudioSegment
 from google.cloud import speech
 from google.cloud import texttospeech
 import requests 
+import xml.etree.ElementTree as ET
 
 
 # 환경 변수 설정
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "C:/Users/이유진/Documents/2024/IDP_LAB/google cloud platform/zippy-brand-429513-k7-6ef67897540d.json"
 
-#=========================== TTS =============================
-def text_to_speech_ssml(ssml_text, output_file):
-    client = texttospeech.TextToSpeechClient()
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+                                                        STT section
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
-    # SSML 입력 설정
-    synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
+# 음성을 녹음하여 WAV 파일로 저장
+audio_filename = "user_input.wav"
+record_audio(5, audio_filename)
 
-    # 음성 설정
-    voice = texttospeech.VoiceSelectionParams(
-        language_code="ko-KR",
-        ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL,
-    )
+# 녹음된 오디오 파일에서 STT로 텍스트 인식
+recognized_text = recognize_speech_from_audio(audio_filename)
 
-    # 오디오 설정
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3
-    )
+# 인식된 텍스트 확인
+print(f"인식된 텍스트: {recognized_text}")
 
-    # 음성 합성 요청
-    response = client.synthesize_speech(
-        input=synthesis_input, voice=voice, audio_config=audio_config
-    )
+# 버스 번호와 의도 추출
+bus_number = extract_bus_number(recognized_text)
+intent = determine_intent(recognized_text)
 
-    # 음성 파일 저장
-    with open(output_file, "wb") as out:
-        out.write(response.audio_content)
-        print(f'Audio content written to file "{output_file}"')
+# 추출된 결과 확인
+print(f"추출된 버스 번호: {bus_number}")
+print(f"추출된 의도: {intent}")
+
+if bus_number is None:
+    msg = "버스 번호를 인식할 수 없습니다. 다시 시도해주세요."
+    print(msg)
+    text_to_speech_ssml(msg, "stt_error.mp3")
+    
+    # 음성 출력
+    sound = AudioSegment.from_mp3("stt_error.mp3")
+    sound.export("stt_error.wav", format="wav")
+    wave_obj = sa.WaveObject.from_wave_file("stt_error.wav")
+    play_obj = wave_obj.play()
+    play_obj.wait_done()
+
+    exit()
 
 
-#=============== 실시간 bus_number, bus_stop 확인 ================
+# GPS 데이터를 받아오고 그 값을 변수에 저장
+latitude, longitude = gps_sub()
 
-def check_bus_number(transcript, expected_bus_numbers):
-    # 텍스트에서 숫자 부분만 추출 (예: "버스 번호는 2024입니다"에서 "2024" 추출)
-    for bus_number in expected_bus_numbers:
-        if bus_number in transcript:
-            return bus_number
-    return None
+bus_api = API()
 
-def get_real_time_bus_info(api_url):
-    try:
-        response = requests.get(api_url)
-        if response.status_code == 200:
-            data = response.json()
-            # 실제 API 데이터 형식에 따라 처리 필요
-            bus_numbers = data.get("bus_numbers", [])
-            bus_stop = data.get("bus_stop", "알 수 없는 정류장")
-            return bus_numbers, bus_stop
-        else:
-            print(f"Error fetching bus data: {response.status_code}")
-            return [], "알 수 없는 정류장"
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        return [], "알 수 없는 정류장"
 
-#=========================== STT =============================
-def stream_audio(api_url):
-    expected_bus_numbers, bus_stop = get_real_time_bus_info(api_url)
 
-    # Google Cloud Speech-to-Text 클라이언트 생성
-    client = speech.SpeechClient()
+# 데이터베이스에서 버스 번호와 정류소 이름에 해당하는 id값 가져오기
+bus_result = bus_api.database_query('bus', 'routeid', 'bus_id', bus_number)
+station_list = bus_api.database_query_specific_column("station", 'node_id')
+station_name_list = bus_api.database_query_specific_column("station", 'station_name')
+X_locations = bus_api.database_query_specific_column("station", 'X_location')
+Y_locations = bus_api.database_query_specific_column("station", 'Y_location')
 
-    # 마이크 설정
-    RATE = 16000
-    CHUNK = int(RATE / 10)  # 100ms
+# 리스트 평탄화
+X_locations = [x[0] for x in X_locations]
+Y_locations = [y[0] for y in Y_locations]
 
-    # 오디오 스트림 생성
-    audio_interface = pyaudio.PyAudio()
-    audio_stream = audio_interface.open(
-        format=pyaudio.paInt16,
-        channels=1,
-        rate=RATE,
-        input=True,
-        frames_per_buffer=CHUNK,
-    )
+# 가장 가까운 정류소 인덱스 찾기
+index = bus_api.find_nearest_index(longitude, latitude, X_locations, Y_locations)
+station_name = station_name_list[index]
+station_id = station_list[index]
+print(f"찾아낸 정류소의 이름 :{station_name}, 찾아낸 정류소의 id :{station_id}")
 
-    # 오디오 데이터 생성기
-    def generate_audio_data():
-        while True:
-            try:
-                data = audio_stream.read(CHUNK, exception_on_overflow=False)
-                yield speech.StreamingRecognizeRequest(audio_content=data)
-            except Exception as e:
-                print(f"Error capturing audio data: {e}")
-                break
+if bus_result == None:
+    print("STT로 인식된 버스 번호가 DB와 일치하지 않습니다.")
+    exit()
 
-    # 자주 사용하는 숫자 목록 (예시)
-    common_numbers = [str(i) for i in range(5000)]  # 0부터 4999까지의 숫자
+# 정류소에 운행하는 버스정보 가져오기
+response2 = bus_api.station_bus_list(station_id[0])
 
-    # 음성 인식 설정
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=RATE,
-        language_code="ko-KR",
-        use_enhanced=True,  # 향상된 모델 사용
-        model="default",  # default 모델 사용, 필요에 따라 video, phone_call 등 설정 가능
-        speech_contexts=[speech.SpeechContext(
-            phrases=common_numbers  # 인식 정확도를 높이기 위한 프레이즈 힌트
-        )]
-    )
-    streaming_config = speech.StreamingRecognitionConfig(
-        config=config,
-        interim_results=True,  # 모든 결과를 받기 위해 interim_results를 True로 설정
-    )
+# xml 값을 가져옴
+root2 = ET.fromstring(response2)
 
-    # 스트리밍 음성 인식 요청
-    requests = generate_audio_data()
-    try:
-        responses = client.streaming_recognize(config=streaming_config, requests=requests)
-    except Exception as e:
-        print(f"Error in streaming_recognize: {e}")
-        return
+# 정류소에서 운행하는 버스 이름 정보 리스트
+bus_list = bus_api.find_xml_val(root2, "busRouteAbrv")
 
-    try:
-        # 인식된 텍스트 출력 및 TTS 변환
-        for response in responses:
-            for result in response.results:
-                if result.is_final:  # 최종 결과만 출력
-                    transcript = result.alternatives[0].transcript
-                    print(f"Final Transcript: {transcript}")
-                    bus_number = check_bus_number(transcript, expected_bus_numbers)
-                    if bus_number:
-                        # TTS 변환
-                        ssml_text = f"""
-                        <speak>
-                            <p>
-                                <s><prosody rate="90%">
-                                    현재 {bus_stop} 정류장에 들어오는 버스는
-                                    <break time="200ms"/><emphasis level="moderate"><say-as interpret-as="characters">{bus_number}</say-as></emphasis>
-                                    <break time="200ms"/><emphasis level="moderate"><say-as interpret-as="characters">{bus_number}</say-as> 번입니다.</emphasis>
-                                    </prosody>
-                                </s>
-                            </p>
-                        </speak>
-                        """
-                        text_to_speech_ssml(ssml_text, "output.mp3")
-                    else:
-                        # 버스 번호가 일치하지 않을 때 TTS 변환
-                        error_message = "일치하는 버스 번호가 없습니다."
-                        ssml_text = f"""
-                        <speak>
-                            <s>{error_message}</s>
-                        </speak>
-                        """
-                        text_to_speech_ssml(ssml_text, "error_message.mp3")
-    except Exception as e:
-        print(f"Error occurred during response handling: {e}")
-    except KeyboardInterrupt:
-        print("Streaming stopped by user.")
-    finally:
-        audio_stream.stop_stream()
-        audio_stream.close()
-        audio_interface.terminate()
+# 버스 리스트에서 인식한 버스 정보가 있는지 찾음
+index, result = bus_api.find_api_val(bus_list, bus_number)
 
-if __name__ == "__main__":
-    api_url = "http://example.com/api/businfo"  # 실시간 버스 정보를 제공하는 API URL
+isArrive1 = []
+arrmsg1_list = []
+arrmsg2_list = []
 
-    # 현재 작업 디렉토리 출력
-    print("Current working directory:", os.getcwd())
+if result:
+    isArrive1 = bus_api.find_xml_val(root2, "isArrive1")
+    arrmsg1_list = bus_api.find_xml_val(root2, "arrmsg1")
+    arrmsg2_list = bus_api.find_xml_val(root2, "arrmsg2")
+else:
+    print("인식된 버스가 해당 정류소에서 운행되지 않습니다.")
+    exit()
 
-    stream_audio(api_url)
+stt_msg1, stt_msg2, stt_msg3 = 0, 0, 0
+
+# 변수 출력
+if not(isArrive1[index]):
+    stt_msg1 = f"{bus_number}번 버스가 도착했습니다."
+    print(stt_msg1)
+else:
+    stt_msg1 = f"{bus_number}번 버스가 도착하지 않았습니다."
+    print(stt_msg1)
+    
+stt_msg2 = "첫번째 버스 도착 예정시간 :" + arrmsg1_list[index] 
+stt_msg3 = "두번째 버스 도착 예정시간 :" + arrmsg2_list[index] 
+print(stt_msg2)
+print(stt_msg3)
+
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+                                                        TTS section
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+# 텍스트를 mp3파일로 저장, 이미 있는경우 덮어씀
+text_to_speech_ssml(stt_msg1 + stt_msg2 + stt_msg3, "bus_info.mp3")
+
+# 소리재생
+print('sound playing')
+
+# MP3 파일 로드
+sound = AudioSegment.from_mp3("bus_info.mp3")
+sound.export("bus_info.wav", format="wav")
+wave_obj = sa.WaveObject.from_wave_file("bus_info.wav")
+play_obj = wave_obj.play()
+play_obj.wait_done()  # 재생이 끝날 때까지 기다림
+
+print('sound_ends')
+
+
